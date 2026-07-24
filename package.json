@@ -1,0 +1,22 @@
+{
+  "name": "stripe-checkout-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Quick and dirty SPA that emulates the browser side of the Phase 3.1 immediate charge checkout: given the invoice confirmation_secret client_secret, mount the Stripe Payment Element and confirm.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@stripe/react-stripe-js": "^3.0.0",
+    "@stripe/stripe-js": "^7.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
+}

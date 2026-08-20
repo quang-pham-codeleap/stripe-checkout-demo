@@ -1,12 +1,18 @@
-export default function Header() {
+export default function Header({ config }) {
   return (
     <header>
       <h1>Stripe Elements Checkout</h1>
       <p className="sub">
-        Phase 3.1, immediate charge. This SPA emulates the browser step only: you have already created the
-        incomplete subscription server side and received{' '}
-        <code>latest_invoice.confirmation_secret.client_secret</code>. Paste it here to mount the Payment
-        Element and confirm the payment.
+        {config ? (
+          config.headerBlurb
+        ) : (
+          <>
+            Phase 3 transaction engine, browser side only. Pick the flow first: an immediate charge
+            mounts the invoice <code>PaymentIntent</code>, a free trial mounts the subscription{' '}
+            <code>SetupIntent</code>. The Payment Element is mounted and confirmed differently for
+            each, so the choice cannot be deferred.
+          </>
+        )}
       </p>
     </header>
   );

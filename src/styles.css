@@ -7,6 +7,7 @@
   --brand: #635bff;
   --ok: #0b8a5b;
   --err: #b3261e;
+  --warn: #8a5a0b;
 }
 
 * {
@@ -69,6 +70,26 @@ input:focus {
   border-color: var(--brand);
 }
 
+input:disabled {
+  background: #f7f8fa;
+  color: var(--muted);
+}
+
+/* Wrapper that gives a Stripe-hosted iframe (the iban Element) the same box as
+   our own inputs, since we cannot style across the iframe boundary. */
+.stripe-field {
+  margin-top: 6px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stripe-field:focus-within {
+  outline: 2px solid var(--brand);
+  border-color: var(--brand);
+}
+
 button {
   width: 100%;
   margin-top: 8px;
@@ -93,6 +114,113 @@ button.link {
   font-weight: 500;
   text-decoration: underline;
   margin-top: 12px;
+}
+
+.lede {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+button.choice {
+  text-align: left;
+  background: none;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+button.choice:hover {
+  border-color: var(--brand);
+  background: #fbfaff;
+}
+
+button.choice strong {
+  display: block;
+  font-size: 15px;
+}
+
+button.choice span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+button.tab {
+  flex: 1;
+  /* Block, not the button default: the two blurbs are different lengths, and
+     centred content would leave the shorter tab's text hanging mid-box. */
+  display: block;
+  text-align: left;
+  margin-top: 0;
+  padding: 10px 12px;
+  background: none;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+button.tab:hover:not(.on) {
+  border-color: var(--brand);
+}
+
+button.tab.on {
+  border-color: var(--brand);
+  background: #f4f3ff;
+}
+
+button.tab strong {
+  display: block;
+  font-size: 14px;
+}
+
+button.tab span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Stripe's standard SEPA mandate wording. Small print, but it has to be
+   legible: displaying it is how the customer signs the mandate. */
+.mandate {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafbfd;
+}
+
+.test-iban {
+  display: block;
+  margin-top: 3px;
 }
 
 .summary {
@@ -132,6 +260,21 @@ code {
   color: var(--err);
   font-size: 13px;
   margin: 12px 0 0;
+}
+
+.warn {
+  color: var(--warn);
+  background: #fff8ec;
+  border: 1px solid #f0dfc0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.warn code {
+  background: #f7ebd6;
 }
 
 .ok {

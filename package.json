@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Quick and dirty SPA that emulates the browser side of the Phase 3.1 immediate charge checkout: given the invoice confirmation_secret client_secret, mount the Stripe Payment Element and confirm.",
+  "description": "Quick and dirty SPA that emulates the browser side of the Phase 3 checkouts: given an invoice PaymentIntent secret or a trial SetupIntent secret, mount the Stripe Payment Element and confirm.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

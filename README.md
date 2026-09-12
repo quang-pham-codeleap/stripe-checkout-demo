@@ -1,21 +1,79 @@
 # Stripe Elements Checkout Demo (Phase 3 Transaction Engine)
 
-Quick and dirty React SPA that emulates the **browser side** of the two Phase 3 checkouts described in `app-flows-phase-3-transaction-engine.md`: the immediate charge (Diagram 5, verified in `curl-log-phase-3-immediate-charge.md`) and the free trial (Diagram 6).
+Quick and dirty React SPA that emulates the **browser side** of the Phase 3 checkouts. Three flows: the proposed EWCS checkout from `ewcs-migration.md`, and the two intent-first flows in production today from `app-flows-phase-3-transaction-engine.md` — the immediate charge (Diagram 5, verified in `curl-log-phase-3-immediate-charge.md`) and the free trial (Diagram 6).
 
-It starts from the moment you already have the client secret. You create the subscription server side, read the confirmation secret, paste it here, and the SPA mounts the payment UI and confirms — with a card through the Payment Element, or with an IBAN through SEPA Direct Debit. There is no backend in this repo; you make the Stripe API calls yourself.
+It starts from the moment you already have the client secret. You make the Stripe API call server side, paste the secret here, and the SPA mounts the payment UI and confirms. There is no backend in this repo; you make the Stripe API calls yourself.
 
 ## Pick the flow first
 
-The first screen asks which checkout you are emulating, because the Payment Element is mounted and confirmed differently for each:
+The first screen asks which checkout you are emulating, because each mounts a different provider and confirms differently:
 
-| Flow | Client secret | Retrieve | Confirm |
+| Flow | Client secret | Provider | Confirm |
 |------|---------------|----------|---------|
-| Immediate charge (Diagram 5) | `pi_..._secret_...` from `latest_invoice.confirmation_secret.client_secret` | `stripe.retrievePaymentIntent` | `stripe.confirmPayment` |
-| Free trial (Diagram 6) | `seti_..._secret_...` from `pending_setup_intent.client_secret` | `stripe.retrieveSetupIntent` | `stripe.confirmSetup` |
+| **EWCS** (proposed) | `cs_..._secret_...` from `checkout.sessions.create` | `CheckoutElementsProvider` | `checkout.confirm` |
+| Immediate charge (Diagram 5) | `pi_..._secret_...` from `latest_invoice.confirmation_secret.client_secret` | `Elements` | `stripe.confirmPayment` |
+| Free trial (Diagram 6) | `seti_..._secret_...` from `pending_setup_intent.client_secret` | `Elements` | `stripe.confirmSetup` |
 
-Crossing them is a hard error, not a degraded experience — Stripe.js throws `IntegrationError: Invalid value for stripe.retrievePaymentIntent intent secret: value should be a PaymentIntent client secret. You specified: a SetupIntent client secret.` The setup form validates the `pi_` / `seti_` prefix against the chosen flow and offers to switch, so the mismatch never reaches Stripe.js.
+Crossing the two intent-first flows is a hard error, not a degraded experience — Stripe.js throws `IntegrationError: Invalid value for stripe.retrievePaymentIntent intent secret: value should be a PaymentIntent client secret. You specified: a SetupIntent client secret.` The setup form validates the `cs_` / `pi_` / `seti_` prefix against the chosen flow and offers to switch, so the mismatch never reaches Stripe.js.
 
-## What it shows
+All three stay in the SPA on purpose. The migration is a proposal with an open go/no-go on the invoice footer, and its own rollout note allows a coexistence window that branches on exactly this prefix.
+
+## EWCS: where the commit point moves
+
+The intent-first flows create the subscription **and finalize the first invoice** before the browser sees anything. Finalization snapshots `customer_name`, `customer_address` and `customer_tax_ids`, so nothing typed at checkout can reach invoice 1 — and since a VIES-verified VAT-ID flips 19% to reverse charge, an inline edit would also have to void the invoice and rebuild the subscription.
+
+A `mode=subscription` Checkout Session commits nothing until `confirm()`. There is no Subscription and no Invoice until then, so billing data stays editable and still lands on invoice 1.
+
+```
+INTENT-FIRST  resolve tax → createPreview → subscriptions.create → invoice FINALIZED → [form] → confirmPayment
+                                                                   ↑ commit point: everything after is frozen
+
+EWCS          resolve tax → checkout.sessions.create → [form, Buyer edits, session re-prices] → confirm()
+                                                                                                ↑ commit point
+```
+
+### What the EWCS screen does
+
+1. **`CheckoutElementsProvider`**, from the `@stripe/react-stripe-js/checkout` subpath — not the package root, where `CheckoutProvider` / `useCheckout` are deprecated since v6.3.0 and gone in v7. `appearance` moves inside `options.elementsOptions`.
+2. **Pre-fill, editable.** The "KundenCenter pre-fill and session options" block on the setup screen stands in for KundenCenter and seeds `options.defaultValues`. In production the backend supplies it.
+3. **A reactive order summary.** There is no `createPreview` and no preview DTO — the session *is* the price preview. Amounts are read from `checkout.total`, `checkout.taxAmounts` and `checkout.lineItems`, divided by `checkout.minorUnitsAmountDivisor`. That divisor is what replaces the hard-coded `/100`, which is wrong for zero-decimal (JPY) and three-decimal (BHD) currencies.
+4. **The edit loop**, which is the heart of the design — see below.
+5. **One confirm.** `checkout.confirm({ returnUrl, redirect: 'if_required' })`. No `elements.submit()`, no client-secret prefix sniffing, no `PAYMENT` / `SETUP` fork: trials are the same flow with `subscription_data[trial_period_days]` on the session.
+
+### The edit loop: 9a and 9b are not interchangeable
+
+**9a, native.** With `BillingAddressElement` and `TaxIdElement` mounted, an address or email edit goes browser → Stripe directly. Stripe re-prices and pushes new totals into every mounted element. No JTL round trip. The email field here calls `checkout.updateEmail()` on blur.
+
+**9b, `runServerUpdate`.** A *manual* `txr_` rate does not re-derive itself — a fixed rate stays fixed no matter what VAT-ID is typed — so reverse charge is only reachable through our backend:
+
+```
+VAT-ID or country changes
+  → checkout.runServerUpdate(async () => POST …/checkout-session/billing)
+  → backend: VIES verify → resolveManualTax → checkout.sessions.update
+  → Stripe re-reads the session and pushes the new totals down
+```
+
+The backend must resend the **whole** `line_items` array. `tax_rates` alone is a `400: You must provide one of 'price' or 'price_data' for each line item when using prices.` So it holds the cart; it cannot diff one field.
+
+There is no backend in this repo, so leave **Billing endpoint** empty and the round trip is only slept through — `runServerUpdate` and the pending state still run, but nothing is re-priced, because swapping the rate needs a secret key. Point it at a real endpoint (it is POSTed `{ sessionId, vatId, businessName, address }`) to watch the rate actually move.
+
+Two things the SPA does deliberately here:
+
+- **It seeds, then diffs.** Each element emits a change event as it mounts, carrying the identity the session was already created from. That first event is recorded as applied rather than fired on, so page load does not trigger a redundant VIES round trip.
+- **It re-resolves on an emptied VAT-ID too, not just a complete one.** Clearing the field has to revert off reverse charge, and an emptied optional field never reports `complete`. Watching only `complete` would leave a 0% rate on a Buyer who deleted the ID that earned it.
+
+### The trap on trials
+
+On a trial session the inline re-price does **not** move `amount_total` — it is €0 before *and* after the tax swap, because the charge is deferred to trial end. The rate genuinely changed; the session total cannot show it. The summary therefore previews **per rate**, and says so on screen. Reading `amount_total` would report "nothing changed" to a Buyer who just entered a valid VAT-ID.
+
+### Two open questions this screen exists to answer
+
+- **Does an existing Customer tax ID suppress the Tax ID Element when mounted explicitly?** Checkout only collects tax IDs on Customers that do not already have one, and we pre-seed the Customer from KundenCenter — which would suppress the field the requirement says must stay editable. `TaxIdElement` is mounted with `visibility: 'always'` and the SPA surfaces the `visible` flag from its change event. No API call can answer this; only a browser can.
+- **Firma or person in `name`?** Stripe's contact has one `name`; KundenCenter has Firma, Vorname and Nachname. The **Name field on the BillingAddressElement** selector switches `display.name` between `full`, `split` and `organization` so the choice can be seen rather than argued. Whichever wins is what the first invoice shows as the legal name.
+
+One correction to `ewcs-migration.md` worth noting: it says `BillingAddressElement` takes `allowedCountries` in place of the pinned `BILLING_COUNTRY_CODES = ['DE']`. It does not. The checkout variant's options are only `contacts`, `display` and `fields` (`StripeCheckoutAddressElementOptions`) — `allowedCountries` belongs to the plain Elements `AddressElement`. The country restriction has to be re-expressed server side on the session, not on this element.
+
+## What the intent-first flows show
 
 1. You pick the flow, then paste the platform publishable key and the client secret.
 2. The SPA retrieves the intent (client-side call, allowed with just the publishable key) to show the amount or the trial notice, plus the intent id, status, and `payment_method_types`.
@@ -105,6 +163,40 @@ Setting `payment_settings[payment_method_types][]` explicitly **turns dynamic pa
 
 ## Get the client secret first (your side)
 
+EWCS — create a Checkout Session. Nothing is committed: it comes back with `subscription: null` and `invoice: null`.
+
+```bash
+curl https://api.stripe.com/v1/checkout/sessions \
+  -u "$STRIPE_KEY:" \
+  -d "mode=subscription" \
+  -d "ui_mode=custom" \
+  -d "customer=cus_..." \
+  -d "line_items[0][price]=price_..." \
+  -d "line_items[0][quantity]=1" \
+  -d "line_items[0][tax_rates][0]=txr_..." \
+  -d "subscription_data[metadata][tenantId]=..." \
+  -d "subscription_data[transfer_data][destination]=acct_..." \
+  -d "subscription_data[on_behalf_of]=acct_..." \
+  -d "billing_address_collection=required" \
+  -d "tax_id_collection[enabled]=true" \
+  -d "customer_update[address]=auto" \
+  -d "customer_update[name]=auto" \
+  -d "payment_method_collection=always" \
+  -d "return_url=http://localhost:5173"
+# -> client_secret (cs_..._secret_...) is what you paste into the SPA
+```
+
+Trial plans add `subscription_data[trial_period_days]=N` and nothing else — same flow, same confirm.
+
+Four things here are easy to get wrong and silent when wrong:
+
+- **`ui_mode=custom`, not `elements`.** `elements` needs API version `2026-03-25.dahlia`; on the pinned `2025-08-27.basil` it is rejected outright.
+- **`subscription_data[metadata]`, not top-level `metadata`.** Session-level metadata stays on the Session and never reaches the Subscription, which is where the webhook handler reads it.
+- **`application_fee_percent` goes under `subscription_data`.** Top-level is a 400.
+- **The updatable surface is tiny.** `subscription_data`, `customer_update`, `billing_address_collection`, `payment_method_collection`, `tax_id_collection` and `return_url` are all `400 parameter_unknown` on update. Anything that must be editable has to be right at create time.
+
+To unwind a session (the duplicate-subscription guard) use `POST /v1/checkout/sessions/{id}/expire` — much cheaper than cancelling an incomplete subscription, because there is nothing to unwind.
+
 Immediate charge — create the subscription incomplete and expand the confirmation secret (the corrected call from the curl log):
 
 ```bash
@@ -143,7 +235,7 @@ Requires Node 18+ (tested on Node 24).
 
 ```bash
 npm install
-cp .env.example .env   # optional: prefill the publishable key and the SEPA creditor name
+cp .env.example .env   # optional: prefill the publishable key, the SEPA creditor name, the billing endpoint
 npm run dev
 ```
 
@@ -172,5 +264,7 @@ These work in both the Payment Element's SEPA tab and the dedicated one. The ful
 ## Notes
 
 - **Platform publishable key.** This is a Connect destination charge (`on_behalf_of`), processed on the platform, so initialize Stripe.js with the platform publishable key and do not set `stripeAccount`.
-- **Client secret type.** For the immediate charge flow the confirmation secret is a `payment_intent` secret (`pi_..._secret_...`). The trial flow has no amount due, so there you mount a SetupIntent secret (`seti_..._secret_...`) and confirm with `confirmSetup`. If your account returns `latest_invoice.confirmation_secret` on a zero-amount trial invoice, it is a `setup_intent` secret — same `seti_` prefix, same flow in this SPA.
-- **Ephemeral.** The client secret is scoped to one payment attempt and its incomplete subscription auto-expires after roughly 23h. Grab a fresh one if it stops working.
+- **Client secret type.** EWCS mounts a Checkout Session secret (`cs_..._secret_...`) and never an intent secret. For the immediate charge flow the confirmation secret is a `payment_intent` secret (`pi_..._secret_...`). The trial flow has no amount due, so there you mount a SetupIntent secret (`seti_..._secret_...`) and confirm with `confirmSetup`. If your account returns `latest_invoice.confirmation_secret` on a zero-amount trial invoice, it is a `setup_intent` secret — same `seti_` prefix, same flow in this SPA.
+- **Ephemeral.** The client secret is scoped to one payment attempt and its incomplete subscription auto-expires after roughly 23h. Grab a fresh one if it stops working. A Checkout Session expires on the same sort of clock.
+- **Package versions.** EWCS needs `@stripe/react-stripe-js` ≥ 6.3.0 for the `/checkout` subpath (this repo is on ^6.10.0) and `@stripe/stripe-js` ≥ 9.16.0. Real-time VAT-ID verification additionally needs the `custom_checkout_tax_id_verification_1` beta on the account; the checkbox on the setup screen passes it to `loadStripe`, and without it the Tax ID Element format-checks only.
+- **The invoice footer is unsolved.** Nothing in this SPA addresses it, because it cannot be addressed from the browser: `subscription_data[invoice_settings][footer]` is `parameter_unknown` and `invoice_creation` is `mode=payment` only, so there is no per-subscription footer on the first invoice. That is the open go/no-go on the whole migration — see `ewcs-migration.md`.

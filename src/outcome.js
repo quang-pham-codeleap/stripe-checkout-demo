@@ -7,7 +7,7 @@
 // SEPA payment red, so `processing` is a success here, with the wait spelled
 // out. The final word still arrives server side on the webhook either way.
 
-const SETTLEMENT = 'SEPA debits settle in about 2 to 14 business days';
+export const SETTLEMENT = 'SEPA debits settle in about 2 to 14 business days';
 
 export function paymentOutcome(pi) {
   switch (pi.status) {

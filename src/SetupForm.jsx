@@ -1,15 +1,21 @@
+import EwcsOptions from './EwcsOptions.jsx';
+
 export default function SetupForm({
   config,
   publishableKey,
   clientSecret,
   onPublishableKeyChange,
   onClientSecretChange,
+  prefill,
+  onPrefillChange,
   error,
   suggestedMode,
   onSelectMode,
   onChangeMode,
   onSubmit,
 }) {
+  const ewcs = config.key === 'ewcs';
+
   return (
     <form className="card" onSubmit={onSubmit}>
       <p className="lede">
@@ -37,6 +43,8 @@ export default function SetupForm({
         />
       </label>
 
+      {ewcs && <EwcsOptions prefill={prefill} onChange={onPrefillChange} />}
+
       {error && <p className="err">{error}</p>}
 
       {suggestedMode && (
@@ -45,7 +53,7 @@ export default function SetupForm({
         </button>
       )}
 
-      <button type="submit">Mount Payment Element</button>
+      <button type="submit">{ewcs ? 'Mount the checkout elements' : 'Mount Payment Element'}</button>
 
       <button type="button" className="link" onClick={onChangeMode}>
         Pick a different flow
@@ -55,6 +63,14 @@ export default function SetupForm({
         Source: <code>{config.secretSource}</code>. Destination charge: use the{' '}
         <strong>platform</strong> publishable key, not the connected account, and no{' '}
         <code>stripeAccount</code> option.
+        {ewcs && (
+          <>
+            {' '}
+            The session must have been created with <code>ui_mode=custom</code>:{' '}
+            <code>elements</code> needs API version <code>2026-03-25.dahlia</code> and is rejected on
+            the pinned <code>2025-08-27.basil</code>.
+          </>
+        )}
       </p>
     </form>
   );

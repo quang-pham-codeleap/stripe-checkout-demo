@@ -3,15 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Quick and dirty SPA that emulates the browser side of the Phase 3 checkouts: given an invoice PaymentIntent secret or a trial SetupIntent secret, mount the Stripe Payment Element and confirm.",
+  "description": "Quick and dirty SPA that emulates the browser side of the Phase 3 checkouts: the proposed EWCS Checkout Session flow, plus the intent-first invoice PaymentIntent and trial SetupIntent flows in production today.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@stripe/react-stripe-js": "^3.0.0",
-    "@stripe/stripe-js": "^7.0.0",
+    "@stripe/react-stripe-js": "^6.10.0",
+    "@stripe/stripe-js": "^9.16.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

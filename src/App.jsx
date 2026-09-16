@@ -5,21 +5,40 @@ import Footer from './Footer.jsx';
 import ModeSelect from './ModeSelect.jsx';
 import SetupForm from './SetupForm.jsx';
 import CheckoutPanel from './CheckoutPanel.jsx';
+import EwcsPanel from './EwcsPanel.jsx';
 import { MODES, modeForSecret } from './modes.js';
+import { toDefaultValues } from './ewcs.js';
 
 const PREFILLED_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+
+// The KundenCenter stand-in, plus the EWCS switches that have to be decided
+// before Stripe.js loads.
+const EMPTY_PREFILL = {
+  name: '',
+  line1: '',
+  postalCode: '',
+  city: '',
+  country: 'DE',
+  email: '',
+  billingEndpoint: import.meta.env.VITE_EWCS_BILLING_ENDPOINT || '',
+  nameDisplay: 'full',
+};
 
 export default function App() {
   const [mode, setMode] = useState('');
   const [publishableKey, setPublishableKey] = useState(PREFILLED_PK);
   const [clientSecret, setClientSecret] = useState('');
+  const [prefill, setPrefill] = useState(EMPTY_PREFILL);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState('');
   const [suggestedMode, setSuggestedMode] = useState('');
 
   const config = MODES[mode] || null;
+  const ewcs = mode === 'ewcs';
 
   // loadStripe runs once, after the user confirms the platform publishable key.
+  // No `betas` here: they are constructor options and the only ones this demo
+  // ever needed were the tax-ID pair, which went with the Tax ID Element.
   const stripePromise = useMemo(
     () => (mounted && publishableKey ? loadStripe(publishableKey.trim()) : null),
     [mounted, publishableKey]
@@ -44,7 +63,9 @@ export default function App() {
     }
 
     // The mismatch that produces "value should be a PaymentIntent client secret.
-    // You specified: a SetupIntent client secret." Catch it before Stripe.js does.
+    // You specified: a SetupIntent client secret." Catch it before Stripe.js
+    // does. The same check separates a Checkout Session secret from both: EWCS
+    // and the intent-first flows mount entirely different providers.
     if (!cs.startsWith(config.secretPrefix)) {
       const actual = modeForSecret(cs);
       if (actual) {
@@ -95,6 +116,8 @@ export default function App() {
           clientSecret={clientSecret}
           onPublishableKeyChange={setPublishableKey}
           onClientSecretChange={setClientSecret}
+          prefill={prefill}
+          onPrefillChange={(patch) => setPrefill((p) => ({ ...p, ...patch }))}
           error={error}
           suggestedMode={suggestedMode ? MODES[suggestedMode] : null}
           onSelectMode={selectMode}
@@ -103,7 +126,17 @@ export default function App() {
         />
       )}
 
-      {mode && mounted && stripePromise && (
+      {mode && mounted && stripePromise && ewcs && (
+        <EwcsPanel
+          stripePromise={stripePromise}
+          clientSecret={clientSecret.trim()}
+          defaultValues={toDefaultValues(prefill)}
+          options={prefill}
+          onReset={reset}
+        />
+      )}
+
+      {mode && mounted && stripePromise && !ewcs && (
         <CheckoutPanel
           stripePromise={stripePromise}
           clientSecret={clientSecret}

@@ -7,10 +7,11 @@ export default function Header({ config }) {
           config.headerBlurb
         ) : (
           <>
-            Phase 3 transaction engine, browser side only. Pick the flow first: an immediate charge
-            mounts the invoice <code>PaymentIntent</code>, a free trial mounts the subscription{' '}
-            <code>SetupIntent</code>. The Payment Element is mounted and confirmed differently for
-            each, so the choice cannot be deferred.
+            Phase 3 transaction engine, browser side only. Pick the flow first. EWCS mounts a{' '}
+            <code>Checkout Session</code> and commits nothing until <code>confirm()</code>; the
+            intent-first flows mount an invoice <code>PaymentIntent</code> or a subscription{' '}
+            <code>SetupIntent</code> that already exists. Each is mounted and confirmed differently,
+            so the choice cannot be deferred.
           </>
         )}
       </p>

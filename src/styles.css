@@ -85,6 +85,13 @@ input:disabled {
   background: #fff;
 }
 
+/* The EWCS elements draw their own box from options.elementsOptions.appearance,
+   cross-origin, so unlike .stripe-field they only need spacing from the label
+   above and the next element below. */
+.stripe-mount {
+  margin: 6px 0 16px;
+}
+
 .stripe-field:focus-within {
   outline: 2px solid var(--brand);
   border-color: var(--brand);
@@ -236,10 +243,91 @@ button.tab span {
   justify-content: space-between;
   align-items: center;
   padding: 3px 0;
+  gap: 12px;
 }
 
 .summary span {
   color: var(--muted);
+}
+
+/* A runServerUpdate is in flight, so every number above is the pre-edit one.
+   Saying so beats letting the Buyer read a stale total as a current one. */
+.summary.stale {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.summary .total {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+
+.summary .warn {
+  margin: 10px 0 2px;
+}
+
+/* The EWCS pre-fill block: enough fields that they need collapsing, and enough
+   pairs of them that PLZ/Stadt and Straße/Land read better side by side. */
+details.options {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+details.options summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+details.options[open] summary {
+  margin-bottom: 14px;
+}
+
+details.options label {
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+}
+
+.row label {
+  flex: 1;
+}
+
+select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+label.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+label.check input {
+  width: auto;
+  margin-top: 3px;
+  flex: none;
+}
+
+.hint.section {
+  margin: 18px 0 10px;
+  font-weight: 600;
 }
 
 code {

@@ -42,33 +42,34 @@ EWCS          resolve tax → checkout.sessions.create → [form, Buyer edits, s
 
 ### The edit loop: 9a and 9b are not interchangeable
 
-**9a, native.** With `BillingAddressElement` and `TaxIdElement` mounted, an address or email edit goes browser → Stripe directly. Stripe re-prices and pushes new totals into every mounted element. No JTL round trip. The email field here calls `checkout.updateEmail()` on blur.
+**9a, native.** With `BillingAddressElement` mounted, an address or email edit goes browser → Stripe directly. Stripe re-prices and pushes new totals into every mounted element. No JTL round trip. The email field here calls `checkout.updateEmail()` on blur.
 
-**9b, `runServerUpdate`.** A *manual* `txr_` rate does not re-derive itself — a fixed rate stays fixed no matter what VAT-ID is typed — so reverse charge is only reachable through our backend:
+**9b, `runServerUpdate`.** A *manual* `txr_` rate does not re-derive itself — a fixed rate stays fixed no matter what the Buyer types — so a rate swap is only reachable through our backend:
 
 ```
-VAT-ID or country changes
+country changes
   → checkout.runServerUpdate(async () => POST …/checkout-session/billing)
-  → backend: VIES verify → resolveManualTax → checkout.sessions.update
+  → backend: resolveManualTax → checkout.sessions.update
   → Stripe re-reads the session and pushes the new totals down
 ```
 
 The backend must resend the **whole** `line_items` array. `tax_rates` alone is a `400: You must provide one of 'price' or 'price_data' for each line item when using prices.` So it holds the cart; it cannot diff one field.
 
-There is no backend in this repo, so leave **Billing endpoint** empty and the round trip is only slept through — `runServerUpdate` and the pending state still run, but nothing is re-priced, because swapping the rate needs a secret key. Point it at a real endpoint (it is POSTed `{ sessionId, vatId, businessName, address }`) to watch the rate actually move.
+There is no backend in this repo, so leave **Billing endpoint** empty and the round trip is only slept through — `runServerUpdate` and the pending state still run, but nothing is re-priced, because swapping the rate needs a secret key. Point it at a real endpoint (it is POSTed `{ sessionId, address }`) to watch the rate actually move.
 
 Two things the SPA does deliberately here:
 
-- **It seeds, then diffs.** Each element emits a change event as it mounts, carrying the identity the session was already created from. That first event is recorded as applied rather than fired on, so page load does not trigger a redundant VIES round trip.
-- **It re-resolves on an emptied VAT-ID too, not just a complete one.** Clearing the field has to revert off reverse charge, and an emptied optional field never reports `complete`. Watching only `complete` would leave a 0% rate on a Buyer who deleted the ID that earned it.
+- **It seeds, then diffs.** The element emits a change event as it mounts, carrying the identity the session was already created from. That first event is recorded as applied rather than fired on, so page load does not trigger a redundant round trip.
+- **It keys on the country, not on "something changed".** A new house number does not move the tax decision and does not earn a round trip; a country switch that blanks the postal code still does, because the edit stays pending until a complete address actually reaches the backend.
+
+**No VAT-ID is collected in the browser.** `TaxIdElement` refuses to be created against a session without `tax_id_collection[enabled]=true` — `IntegrationError: You cannot create the Tax ID Element if tax_id_collection.enabled is not true` — and this flow prices off a manual `txr_` rate on the line item instead, so mounting it threw and took the React tree with it. The element, both tax-ID betas and the VAT-ID half of the 9b payload are all gone; the buyer country is the only pricing input the form carries. To exercise the VAT-ID path, call the Stripe methods directly rather than through an element, or create the session with `tax_id_collection[enabled]=true` and mount the element again.
 
 ### The trap on trials
 
-On a trial session the inline re-price does **not** move `amount_total` — it is €0 before *and* after the tax swap, because the charge is deferred to trial end. The rate genuinely changed; the session total cannot show it. The summary therefore previews **per rate**, and says so on screen. Reading `amount_total` would report "nothing changed" to a Buyer who just entered a valid VAT-ID.
+On a trial session the inline re-price does **not** move `amount_total` — it is €0 before *and* after the tax swap, because the charge is deferred to trial end. The rate genuinely changed; the session total cannot show it. The summary therefore previews **per rate**, and says so on screen. Reading `amount_total` would report "nothing changed" to a Buyer whose rate had just moved to reverse charge.
 
-### Two open questions this screen exists to answer
+### The open question this screen exists to answer
 
-- **Does an existing Customer tax ID suppress the Tax ID Element when mounted explicitly?** Checkout only collects tax IDs on Customers that do not already have one, and we pre-seed the Customer from KundenCenter — which would suppress the field the requirement says must stay editable. `TaxIdElement` is mounted with `visibility: 'always'` and the SPA surfaces the `visible` flag from its change event. No API call can answer this; only a browser can.
 - **Firma or person in `name`?** Stripe's contact has one `name`; KundenCenter has Firma, Vorname and Nachname. The **Name field on the BillingAddressElement** selector switches `display.name` between `full`, `split` and `organization` so the choice can be seen rather than argued. Whichever wins is what the first invoice shows as the legal name.
 
 One correction to `ewcs-migration.md` worth noting: it says `BillingAddressElement` takes `allowedCountries` in place of the pinned `BILLING_COUNTRY_CODES = ['DE']`. It does not. The checkout variant's options are only `contacts`, `display` and `fields` (`StripeCheckoutAddressElementOptions`) — `allowedCountries` belongs to the plain Elements `AddressElement`. The country restriction has to be re-expressed server side on the session, not on this element.
@@ -178,7 +179,6 @@ curl https://api.stripe.com/v1/checkout/sessions \
   -d "subscription_data[transfer_data][destination]=acct_..." \
   -d "subscription_data[on_behalf_of]=acct_..." \
   -d "billing_address_collection=required" \
-  -d "tax_id_collection[enabled]=true" \
   -d "customer_update[address]=auto" \
   -d "customer_update[name]=auto" \
   -d "payment_method_collection=always" \
@@ -266,5 +266,6 @@ These work in both the Payment Element's SEPA tab and the dedicated one. The ful
 - **Platform publishable key.** This is a Connect destination charge (`on_behalf_of`), processed on the platform, so initialize Stripe.js with the platform publishable key and do not set `stripeAccount`.
 - **Client secret type.** EWCS mounts a Checkout Session secret (`cs_..._secret_...`) and never an intent secret. For the immediate charge flow the confirmation secret is a `payment_intent` secret (`pi_..._secret_...`). The trial flow has no amount due, so there you mount a SetupIntent secret (`seti_..._secret_...`) and confirm with `confirmSetup`. If your account returns `latest_invoice.confirmation_secret` on a zero-amount trial invoice, it is a `setup_intent` secret — same `seti_` prefix, same flow in this SPA.
 - **Ephemeral.** The client secret is scoped to one payment attempt and its incomplete subscription auto-expires after roughly 23h. Grab a fresh one if it stops working. A Checkout Session expires on the same sort of clock.
-- **Package versions.** EWCS needs `@stripe/react-stripe-js` ≥ 6.3.0 for the `/checkout` subpath (this repo is on ^6.10.0) and `@stripe/stripe-js` ≥ 9.16.0. Real-time VAT-ID verification additionally needs the `custom_checkout_tax_id_verification_1` beta on the account; the checkbox on the setup screen passes it to `loadStripe`, and without it the Tax ID Element format-checks only.
+- **Package versions.** EWCS needs `@stripe/react-stripe-js` ≥ 6.3.0 for the `/checkout` subpath (this repo is on ^6.10.0) and `@stripe/stripe-js` ≥ 9.16.0. No `betas` are passed to `loadStripe`: the only ones this demo needed were the tax-ID pair, and they went with the Tax ID Element.
+- **No Tax ID Element.** Bringing it back takes two things together, and either alone fails. On the session, `tax_id_collection[enabled]=true` at create time — it is `parameter_unknown` on update, so it cannot be added later. In `loadStripe`, the `custom_checkout_tax_id_1` beta, without which Stripe.js never attaches `createTaxIdElement` to the checkout SDK and the element throws `elementsSdk.createTaxIdElement is not a function` as it mounts; `custom_checkout_tax_id_verification_1` is a second, optional beta adding real-time registry verification on top. Both betas have to be enabled on the account as well — the flag alone does not grant access.
 - **The invoice footer is unsolved.** Nothing in this SPA addresses it, because it cannot be addressed from the browser: `subscription_data[invoice_settings][footer]` is `parameter_unknown` and `invoice_creation` is `mode=payment` only, so there is no per-subscription footer on the first invoice. That is the open go/no-go on the whole migration — see `ewcs-migration.md`.

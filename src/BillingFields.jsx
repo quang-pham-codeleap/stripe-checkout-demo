@@ -1,41 +1,42 @@
 import { useRef, useState } from 'react';
-import { BillingAddressElement, TaxIdElement } from '@stripe/react-stripe-js/checkout';
+import { BillingAddressElement } from '@stripe/react-stripe-js/checkout';
 import { postBillingUpdate } from './ewcs.js';
 
-// Step 9, the edit loop, and the heart of the migration. Everything here is
-// live Stripe elements rather than the read-only billing profile the intent-
-// first checkout rendered, because under EWCS these fields are still allowed to
-// change the price.
+// Step 9, the edit loop. Everything here is live Stripe elements rather than the
+// read-only billing profile the intent-first checkout rendered, because under
+// EWCS these fields are still allowed to change the price.
 //
 // There are two re-pricing mechanisms and they are not interchangeable:
 //
-//   9a  Native. With the elements mounted, an address or email edit goes
+//   9a  Native. With the element mounted, an address or email edit goes
 //       browser -> Stripe directly, Stripe re-prices, and the change event
 //       pushes new totals into every mounted element. No JTL round trip.
 //
 //   9b  runServerUpdate. A *manual* txr_ rate does not re-derive itself -- a
-//       fixed rate stays fixed no matter what VAT-ID is typed -- so reverse
-//       charge is only reachable through our backend: VIES verifies,
-//       resolveManualTax decides, checkout.sessions.update swaps the rate.
-//       Stripe re-reads the session when the user function resolves.
+//       fixed rate stays fixed no matter what the Buyer types -- so a rate swap
+//       is only reachable through our backend: resolveManualTax decides,
+//       checkout.sessions.update swaps the rate. Stripe re-reads the session
+//       when the user function resolves.
 //
-// Mounting TaxIdElement is what puts the VAT-ID on the session, so it reaches
-// customer_details.tax_ids and the invoice. The server round trip below is not
-// a substitute for that -- it exists purely to move the *price*.
+// No VAT-ID is collected here. The Tax ID Element requires the session to have
+// been created with tax_id_collection[enabled]=true, and this flow prices off a
+// manual txr_ rate on the line item instead, so mounting it throws
+// "You cannot create the Tax ID Element if tax_id_collection.enabled is not
+// true" and takes the tree with it. That leaves the buyer country as the only
+// pricing input this form carries; to exercise the VAT-ID half of
+// resolveManualTax, call the Stripe methods directly rather than through an
+// element.
 export default function BillingFields({ checkout, options, pending, onPendingChange }) {
   const [note, setNote] = useState(null);
-  const [verification, setVerification] = useState(null);
-  const [taxIdVisible, setTaxIdVisible] = useState(null);
   const [email, setEmail] = useState(checkout.email || '');
   const [emailError, setEmailError] = useState('');
 
-  // Mutated synchronously by the change handlers so the drain loop below always
+  // Mutated synchronously by the change handler so the drain loop below always
   // reads the newest value, not the one captured when the run started.
   const addressRef = useRef(null);
-  const taxRef = useRef(null);
   const lastRunRef = useRef('');
   const inFlightRef = useRef(false);
-  const seenRef = useRef({ address: false, tax: false });
+  const seenRef = useRef({ address: false });
 
   // The session re-prices under us, so `checkout` is a new object on every
   // change. A drain loop can span several of those; read the current one.
@@ -43,13 +44,12 @@ export default function BillingFields({ checkout, options, pending, onPendingCha
   checkoutRef.current = checkout;
 
   // resolveManualTax(sellerCountry, buyerCountry, hasVerifiedVatId): the buyer
-  // country and the VAT-ID are its only inputs from this form, so those two are
-  // what a re-resolve has to be keyed on. Keying on the signature rather than on
-  // "did this event change something" also survives a country switch that blanks
-  // the postal code: the edit is remembered until a complete state actually
-  // reaches the backend.
-  const signature = () =>
-    `${addressRef.current?.country || ''}|${taxRef.current?.taxId || ''}`;
+  // country is its only input from this form, so that is what a re-resolve has
+  // to be keyed on. Keying on the signature rather than on "did this event
+  // change something" also survives a country switch that blanks the postal
+  // code: the edit is remembered until a complete state actually reaches the
+  // backend.
+  const signature = () => addressRef.current?.country || '';
 
   const runServerUpdate = async () => {
     if (inFlightRef.current) return;
@@ -60,11 +60,9 @@ export default function BillingFields({ checkout, options, pending, onPendingCha
       // otherwise be dropped, leaving the session priced for an identity the
       // Buyer has already moved on from.
       while (signature() !== lastRunRef.current) {
-        const current = signature();
-        lastRunRef.current = current;
+        lastRunRef.current = signature();
 
         const address = addressRef.current;
-        const tax = taxRef.current;
 
         onPendingChange(true);
         setNote(null);
@@ -73,8 +71,6 @@ export default function BillingFields({ checkout, options, pending, onPendingCha
           await postBillingUpdate({
             endpoint: options.billingEndpoint,
             sessionId: checkoutRef.current.id,
-            taxId: tax?.taxId,
-            businessName: tax?.businessName,
             address,
           });
         });
@@ -107,9 +103,9 @@ export default function BillingFields({ checkout, options, pending, onPendingCha
     }
   };
 
-  // Each element emits a change event as it mounts, carrying the identity the
+  // The element emits a change event as it mounts, carrying the identity the
   // session was already created from. That first one is not an edit: recording
-  // it as applied is what stops a redundant VIES round trip on page load.
+  // it as applied is what stops a redundant round trip on page load.
   const seed = (kind) => {
     if (seenRef.current[kind]) return false;
     seenRef.current[kind] = true;
@@ -121,24 +117,8 @@ export default function BillingFields({ checkout, options, pending, onPendingCha
     addressRef.current = event.value.address;
     if (seed('address')) return;
     // Only the country moves the tax decision; a new house number does not need
-    // a VIES round trip, and the signature is what enforces that.
+    // a backend round trip, and the signature is what enforces that.
     if (event.complete && signature() !== lastRunRef.current) runServerUpdate();
-  };
-
-  const handleTaxIdChange = (event) => {
-    setTaxIdVisible(event.visible);
-    setVerification(event.verification?.taxId?.status || null);
-    taxRef.current = {
-      taxId: event.value.taxId,
-      taxIdType: event.value.taxIdType,
-      businessName: event.value.businessName,
-    };
-    if (seed('tax')) return;
-    // `empty` matters as much as `complete`: clearing the VAT-ID has to re-resolve
-    // back off reverse charge, and an emptied optional field never reports
-    // complete. Leaving that out would keep a 0% rate on a Buyer who deleted the
-    // ID that earned it.
-    if ((event.complete || event.empty) && signature() !== lastRunRef.current) runServerUpdate();
   };
 
   // 9a for the email: no price consequence, but it is the documented mapping
@@ -186,51 +166,12 @@ export default function BillingFields({ checkout, options, pending, onPendingCha
         />
       </label>
 
-      <label>
-        VAT-ID (USt-IdNr.)
-        <TaxIdElement
-          className="stripe-mount"
-          options={{
-            // 'always', not 'auto': Checkout hides tax-ID collection outright
-            // when the Customer already has a tax ID saved, and we pre-seed the
-            // Customer from KundenCenter, which would suppress the field the
-            // requirement says must stay editable.
-            visibility: 'always',
-            fields: { businessName: 'always' },
-            ...(options.taxIdBeta
-              ? { verification: { taxId: { mode: 'if_supported' } } }
-              : null),
-          }}
-          onChange={handleTaxIdChange}
-        />
-      </label>
-
-      {/* Question 6 in the migration doc is exactly this readout: does an
-          existing Customer tax ID suppress the element when it is mounted
-          explicitly? `visible` answers it, and no API call can. */}
-      {taxIdVisible === false && (
-        <p className="warn">
-          The Tax ID Element reports <code>visible: false</code>. Checkout only collects tax IDs on
-          Customers that do not already have one saved — so the pre-seeded KundenCenter VAT-ID has
-          suppressed the field. "Pre-filled but editable" cannot be met against this Customer.
-        </p>
-      )}
-
-      {verification && (
-        <p className={verification === 'verified' ? 'ok' : 'hint'}>
-          Tax ID verification: <code>{verification}</code>
-          {verification === 'unavailable' &&
-            ' — the government registry is unreachable, so this fell back to a format check. Our own VIES call stays the gate.'}
-          {verification === 'pending' && ' — confirm stays disabled until this resolves.'}
-        </p>
-      )}
-
-      {!options.taxIdBeta && (
-        <p className="hint">
-          Real-time tax-ID verification is off: Stripe.js was loaded without the{' '}
-          <code>custom_checkout_tax_id_verification_1</code> beta, so the element format-checks only.
-        </p>
-      )}
+      <p className="hint">
+        No VAT-ID field: the Tax ID Element needs a session created with{' '}
+        <code>tax_id_collection[enabled]=true</code>, and this one prices off a manual{' '}
+        <code>txr_</code> rate instead. The buyer country is the only pricing input this form
+        carries.
+      </p>
 
       {note && <p className={note.ok ? 'ok' : 'warn'}>{note.message}</p>}
     </>

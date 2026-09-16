@@ -7,11 +7,11 @@ import SetupForm from './SetupForm.jsx';
 import CheckoutPanel from './CheckoutPanel.jsx';
 import EwcsPanel from './EwcsPanel.jsx';
 import { MODES, modeForSecret } from './modes.js';
-import { TAX_ID_BETA, toDefaultValues } from './ewcs.js';
+import { toDefaultValues } from './ewcs.js';
 
 const PREFILLED_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
 
-// The KundenCenter stand-in, plus the two EWCS switches that have to be decided
+// The KundenCenter stand-in, plus the EWCS switches that have to be decided
 // before Stripe.js loads.
 const EMPTY_PREFILL = {
   name: '',
@@ -22,7 +22,6 @@ const EMPTY_PREFILL = {
   email: '',
   billingEndpoint: import.meta.env.VITE_EWCS_BILLING_ENDPOINT || '',
   nameDisplay: 'full',
-  taxIdBeta: false,
 };
 
 export default function App() {
@@ -38,17 +37,11 @@ export default function App() {
   const ewcs = mode === 'ewcs';
 
   // loadStripe runs once, after the user confirms the platform publishable key.
-  // The tax-ID verification beta is a constructor option, so it is part of that
-  // one-time decision and cannot be toggled on a mounted Stripe object.
+  // No `betas` here: they are constructor options and the only ones this demo
+  // ever needed were the tax-ID pair, which went with the Tax ID Element.
   const stripePromise = useMemo(
-    () =>
-      mounted && publishableKey
-        ? loadStripe(
-            publishableKey.trim(),
-            ewcs && prefill.taxIdBeta ? { betas: [TAX_ID_BETA] } : undefined
-          )
-        : null,
-    [mounted, publishableKey, ewcs, prefill.taxIdBeta]
+    () => (mounted && publishableKey ? loadStripe(publishableKey.trim()) : null),
+    [mounted, publishableKey]
   );
 
   const handleMount = (e) => {

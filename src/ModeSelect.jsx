@@ -30,7 +30,7 @@ export default function ModeSelect({ onSelect }) {
         before the browser saw anything, and the billing data on that invoice is frozen. EWCS is
         handed a session that has committed nothing: the <code>Subscription</code> and the{' '}
         <code>Invoice</code> are created by <code>confirm()</code>, from whatever billing identity the
-        session holds at that moment. That is what lets the Buyer edit the address and the VAT-ID
+        session holds at that moment. That is what lets the Buyer edit the address
         mid-checkout and still have it land on invoice 1.
       </p>
     </div>

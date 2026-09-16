@@ -76,20 +76,8 @@ export default function EwcsOptions({ prefill, onChange, disabled }) {
         There is no backend in this repo. Left empty, the step-9b round trip is only slept through:
         <code>runServerUpdate</code> and the pending state still run, but nothing is re-priced, because
         swapping the <code>txr_</code> rate needs a secret key. Point this at a real endpoint — it is
-        POSTed <code>{'{ sessionId, vatId, businessName, address }'}</code> — to see the rate actually
-        move.
+        POSTed <code>{'{ sessionId, address }'}</code> — to see the rate actually move.
       </p>
-
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={prefill.taxIdBeta}
-          onChange={(e) => onChange({ taxIdBeta: e.target.checked })}
-          disabled={disabled}
-        />
-        Load Stripe.js with <code>custom_checkout_tax_id_verification_1</code> (real-time VAT-ID
-        verification — public preview, needs beta access on the account)
-      </label>
     </details>
   );
 }

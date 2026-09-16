@@ -37,7 +37,7 @@ export default function OrderSummary({ checkout, pending }) {
         <code>{fmt(total.subtotal)}</code>
       </div>
 
-      {/* The tax rate line, not the total, is what an inline VAT-ID edit moves
+      {/* The tax rate line, not the total, is what a backend rate swap moves
           visibly on a trial -- see the trial note below. Showing displayName and
           percentage means "19% -> reverse charge 0%" is legible even when the
           amount either side of it is zero. */}
@@ -65,7 +65,7 @@ export default function OrderSummary({ checkout, pending }) {
           Trial ({trial.trialPeriodDays} days). <strong>The total cannot show a tax change here</strong>{' '}
           — it is {fmt(total.total)} before and after a rate swap, because the charge is deferred to
           trial end. Watch the rate line above instead. Reading <code>amount_total</code> would report
-          "nothing changed" to a Buyer who just entered a valid VAT-ID.
+          "nothing changed" to a Buyer whose rate had just moved to reverse charge.
         </p>
       )}
 

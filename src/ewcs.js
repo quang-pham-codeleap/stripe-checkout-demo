@@ -4,9 +4,9 @@
 // The intent-first flows create the subscription, and with it a *finalized*
 // first invoice, before the browser sees anything. Finalization snapshots
 // customer_name, customer_address and customer_tax_ids, so nothing the Buyer
-// types at checkout can reach invoice 1. Worse, the VAT-ID is a pricing input --
-// a verified one flips 19% to reverse charge -- so an inline edit would have to
-// void the invoice and rebuild the subscription.
+// types at checkout can reach invoice 1. Worse, the billing country is a pricing
+// input -- it is what resolveManualTax picks the txr_ rate from -- so an inline
+// edit would have to void the invoice and rebuild the subscription.
 //
 // A mode=subscription Checkout Session moves the commit point to confirm().
 // Until then there is no Subscription and no Invoice, just a session that
@@ -14,11 +14,13 @@
 
 import { SETTLEMENT } from './outcome.js';
 
-// The beta Stripe.js has to be loaded with before createTaxIdElement will do
-// real-time government-registry verification. Public preview, so treat the
-// status it reports as an accelerator on top of our own VIES call, never as the
-// compliance gate: `unavailable` means the registry dropped out.
-export const TAX_ID_BETA = 'custom_checkout_tax_id_verification_1';
+// No tax-ID betas here. The Tax ID Element is not mounted, because it refuses
+// to be created against a session without tax_id_collection[enabled]=true --
+// "You cannot create the Tax ID Element if tax_id_collection.enabled is not
+// true" -- and this flow prices off a manual txr_ rate on the line item
+// instead. So loadStripe gets no `betas` and the VAT-ID never reaches the
+// browser; drive the VAT-ID half of resolveManualTax from the backend, or by
+// calling Stripe directly.
 
 // Every amount on a session arrives twice: `amount`, preformatted by Stripe for
 // the session currency, and `minorUnitsAmount` alongside
@@ -125,16 +127,19 @@ export function toDefaultValues(prefill) {
 }
 
 // Step 9b, the JTL side of the edit loop. In production this is
-// POST /app-service/apps/subscription/checkout-session/billing, which
-// VIES-verifies the VAT-ID, re-runs resolveManualTax, and PATCHes the session
-// with the whole line_items array and the new txr_ rate -- tax_rates on its own
-// is a 400, "you must provide one of 'price' or 'price_data'". So the backend
-// holds the cart; it cannot diff one field.
+// POST /app-service/apps/subscription/checkout-session/billing, which re-runs
+// resolveManualTax and PATCHes the session with the whole line_items array and
+// the new txr_ rate -- tax_rates on its own is a 400, "you must provide one of
+// 'price' or 'price_data'". So the backend holds the cart; it cannot diff one
+// field.
+//
+// Only the address goes up: with no Tax ID Element mounted there is no VAT-ID
+// to verify, so the buyer country is the single pricing input this carries.
 //
 // There is no backend in this repo. Point `endpoint` at a real one to drive it,
 // or leave it empty and the call is only slept through, which still exercises
 // runServerUpdate and the pending UI but re-prices nothing.
-export async function postBillingUpdate({ endpoint, sessionId, taxId, businessName, address }) {
+export async function postBillingUpdate({ endpoint, sessionId, address }) {
   if (!endpoint) {
     await new Promise((resolve) => setTimeout(resolve, 900));
     return { simulated: true };
@@ -143,7 +148,7 @@ export async function postBillingUpdate({ endpoint, sessionId, taxId, businessNa
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, vatId: taxId || null, businessName: businessName || null, address }),
+    body: JSON.stringify({ sessionId, address }),
   });
 
   if (!response.ok) {

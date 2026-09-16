@@ -21,7 +21,7 @@ export const MODES = {
     diagram: 'the EWCS diagram',
     doc: 'ewcs-migration.md',
     headerBlurb:
-      'EWCS, the proposed flow. You have created a mode=subscription Checkout Session server side with ui_mode=custom and read its client_secret. Nothing is committed yet: paste it here to mount the billing, tax-ID and payment elements, edit the billing data, and watch the session re-price before you confirm.',
+      'EWCS, the proposed flow. You have created a mode=subscription Checkout Session server side with ui_mode=custom and read its client_secret. Nothing is committed yet: paste it here to mount the billing and payment elements, edit the billing data, and watch the session re-price before you confirm.',
   },
   payment: {
     key: 'payment',
